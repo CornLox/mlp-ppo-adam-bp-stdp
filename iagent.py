@@ -1,58 +1,77 @@
 import numpy as np
 from torch.distributions.categorical import Categorical
 import net
-import torch.nn as nn
+
+
 class Agent():
-    def __init__(self,args,envs,device,run_name):
+    def __init__(self, args, envs, device, run_name):
         self.args = args
         self.critic = net.Critic(input=np.array(envs.single_observation_space.shape).prod(),
-                                output=envs.single_action_space.n,
-                                args=args,
-                                run_name=run_name
-                                ).to(device)
-        
-        self.actor = net.Actor(input=np.array(envs.single_observation_space.shape).prod(),
-                                output=envs.single_action_space.n,
-                                args=args,
-                                run_name=run_name
-                                ).to(device)
+                                 output=envs.single_action_space.n,
+                                 args=args,
+                                 run_name=run_name,
+                                 device=device
+                                 ).to(device)
 
+        self.actor = net.Actor(input=np.array(envs.single_observation_space.shape).prod(),
+                               output=envs.single_action_space.n,
+                               args=args,
+                               run_name=run_name,
+                               device=device
+                               ).to(device)
 
     def get_value(self, x):
-        values, _ = self.critic(x)
-        return values 
-    
+        values = self.critic(x)
+        return values
+
     def get_action_and_value(self, x, action=None):
-        logits, actor_spks = self.actor(x)
-        values, critic_spks = self.critic(x)
+        logits = self.actor(x)
+        values = self.critic(x)
         probs = Categorical(logits=logits)
         if action is None:
             action = probs.sample()
-        return action, probs.log_prob(action), probs.entropy(), values, actor_spks, critic_spks
-    
-    def backprop(self,loss):
+        return action, probs.log_prob(action), probs.entropy(), values
+
+    def backprop(self, loss):
         self.actor.optimizer.zero_grad()
         self.critic.optimizer.zero_grad()
         loss.backward()
-        nn.utils.clip_grad_norm_(self.actor.parameters(), self.args.max_grad_norm)
-        nn.utils.clip_grad_norm_(self.critic.parameters(), self.args.max_grad_norm)
         self.actor.optimizer.step()
         self.critic.optimizer.step()
 
-    def stdp(self,actor_output,critic_output,reward,batch_size):
-            self.actor.r_stdp(actor_output,reward,batch_size)
-            self.critic.r_stdp(critic_output,reward,batch_size)
-
-    def reset_actor_critic_traces(self):
-        self.actor.reset_traces()
-        self.critic.reset_traces()         
-
-     
     def save_model(self):
         self.actor.save()
         self.critic.save()
 
+    def load_model(self, checkpoint_file):
+        self.actor.load(checkpoint_file)
+        self.critic.load(checkpoint_file)
+
+    def load_current_model(self):
+        self.actor.load_current()
+        self.critic.load_current()
 
 
-    def load_model(self,checkpoint_file):
-        self.actor.load(checkpoint_file)    
+class TestAgent():
+    def __init__(self, args, envs, device, run_name):
+        self.args = args
+
+        self.actor = net.Actor(input=np.array(envs.observation_space.shape).prod(),
+                               output=envs.action_space.n,
+                               args=args,
+                               run_name=run_name,
+                               device=device
+                               ).to(device)
+
+    def get_action(self, x, action=None):
+        logits = self.actor(x.unsqueeze(0))
+        probs = Categorical(logits=logits)
+        if action is None:
+            action = probs.sample()
+        return action
+
+    def load_model(self, checkpoint_file):
+        self.actor.load(checkpoint_file)
+
+    def load_current_model(self):
+        self.actor.load_current()
